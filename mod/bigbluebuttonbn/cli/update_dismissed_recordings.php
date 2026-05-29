@@ -99,7 +99,10 @@ foreach ($bbcms as $bbcm) {
     $recordingkeys = array_map(function($rec) {
         return $rec->get('recordingid');
     }, $recordings);
-    $recordingmeta = \mod_bigbluebuttonbn\local\proxy\recording_proxy::fetch_recordings($recordingkeys);
+    $recordingmeta = \mod_bigbluebuttonbn\local\proxy\recording_proxy::fetch_recordings(
+        $recordingkeys,
+        $instance->get_instance_id()
+    );
     if (empty($recordings)) {
         cli_writeln("\t->No recordings found ...");
     } else {

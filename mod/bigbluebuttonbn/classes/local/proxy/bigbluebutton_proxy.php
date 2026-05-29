@@ -147,12 +147,13 @@ class bigbluebutton_proxy extends proxy_base {
      *
      * @return null|string
      */
-    public static function get_server_version(): ?string {
+    public static function get_server_version(?int $instanceid = null): ?string {
         $cache = cache::make('mod_bigbluebuttonbn', 'serverinfo');
-        $serverversion = $cache->get('serverversion');
+        $cachekey = 'serverversion_' . sha1(self::sanitized_url($instanceid));
+        $serverversion = $cache->get($cachekey);
 
         if (!$serverversion) {
-            $xml = self::fetch_endpoint_xml('');
+            $xml = self::fetch_endpoint_xml('', [], [], $instanceid);
             if (!$xml || $xml->returncode != 'SUCCESS') {
                 return null;
             }
@@ -162,10 +163,30 @@ class bigbluebutton_proxy extends proxy_base {
             }
 
             $serverversion = (string) $xml->version;
-            $cache->set('serverversion', $serverversion);
+            $cache->set($cachekey, $serverversion);
         }
 
         return (double) $serverversion;
+    }
+
+    /**
+     * Get the shared secret for the server configured for the given instance.
+     *
+     * @param int|null $instanceid BigBlueButtonBN instance id.
+     * @return string
+     */
+    public static function get_shared_secret(?int $instanceid = null): string {
+        return self::sanitized_secret($instanceid);
+    }
+
+    /**
+     * Get the API URL for the server configured for the given instance.
+     *
+     * @param int|null $instanceid BigBlueButtonBN instance id.
+     * @return string
+     */
+    public static function get_server_url(?int $instanceid = null): string {
+        return self::sanitized_url($instanceid);
     }
 
     /**
@@ -213,9 +234,9 @@ class bigbluebutton_proxy extends proxy_base {
      * @param string $url
      * @return bool
      */
-    public static function is_remote_resource_valid(string $url): bool {
+    public static function is_remote_resource_valid(string $url, ?int $instanceid = null): bool {
         $urlhost = parse_url($url, PHP_URL_HOST);
-        $serverurlhost = parse_url(\mod_bigbluebuttonbn\local\config::get('server_url'), PHP_URL_HOST);
+        $serverurlhost = parse_url(self::sanitized_url($instanceid), PHP_URL_HOST);
 
         if ($urlhost == $serverurlhost) {
             // Skip validation when the recording URL host is the same as the configured BBB server.
@@ -403,7 +424,7 @@ class bigbluebutton_proxy extends proxy_base {
     public static function require_working_server(instance $instance): void {
         $version = null;
         try {
-            $version = self::get_server_version();
+            $version = self::get_server_version($instance->get_instance_id());
         } catch (server_not_available_exception $e) {
             self::handle_server_not_available($instance);
         }
@@ -536,11 +557,11 @@ class bigbluebutton_proxy extends proxy_base {
      *
      * @return bool
      */
-    public static function is_bn_server() {
+    public static function is_bn_server(?int $instanceid = null) {
         if (config::get('bn_server')) {
             return true;
         }
-        $parsedurl = parse_url(config::get('server_url'));
+        $parsedurl = parse_url(self::sanitized_url($instanceid));
         if (!isset($parsedurl['host'])) {
             return false;
         }

@@ -73,8 +73,15 @@ class upgrade_recordings_task extends adhoc_task {
             // No more logs. Stop queueing.
             return false;
         }
-        // Retrieve recordings from the servers for this meeting.
-        $recordings = recording_proxy::fetch_recording_by_meeting_id([$meetingid]);
+        // Retrieve recordings from the server configured for this meeting when the instance can be inferred.
+        $instanceid = null;
+        try {
+            $meetingdata = instance::parse_meetingid($meetingid);
+            $instanceid = (int) $meetingdata['instanceid'];
+        } catch (moodle_exception $e) {
+            // Keep the legacy default server behaviour when the meeting id cannot be parsed.
+        }
+        $recordings = recording_proxy::fetch_recording_by_meeting_id([$meetingid], $instanceid);
         // Sort recordings by meetingId, then startTime.
         uasort($recordings, function($a, $b) {
             return $b['startTime'] - $a['startTime'];

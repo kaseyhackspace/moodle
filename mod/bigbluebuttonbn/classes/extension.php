@@ -22,6 +22,7 @@ use mod_bigbluebuttonbn\local\extension\broker_meeting_events_addons;
 use mod_bigbluebuttonbn\local\extension\custom_completion_addons;
 use mod_bigbluebuttonbn\local\extension\mod_form_addons;
 use mod_bigbluebuttonbn\local\extension\mod_instance_helper;
+use mod_bigbluebuttonbn\local\extension\server_config_addons;
 use stdClass;
 use core_plugin_manager;
 
@@ -69,6 +70,23 @@ class extension {
             'data' => $additionaldata,
             'metadata' => $additionalmetadata
         ];
+    }
+
+    /**
+     * Get server configuration overrides from enabled subplugins.
+     *
+     * @param int|null $instanceid BigBlueButtonBN instance id.
+     * @return array
+     */
+    public static function server_config_addons(?int $instanceid = null): array {
+        $allconfigclasses = self::get_instances_implementing(server_config_addons::class);
+        foreach ($allconfigclasses as $configclass) {
+            $config = $configclass->get_server_config($instanceid);
+            if (!empty($config)) {
+                return $config;
+            }
+        }
+        return [];
     }
 
     /**

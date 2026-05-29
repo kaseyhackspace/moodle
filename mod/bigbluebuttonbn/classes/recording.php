@@ -399,7 +399,8 @@ class recording extends persistent {
             if ($metadata) {
                 recording_proxy::update_recording(
                     $this->get('recordingid'),
-                    $metadata
+                    $metadata,
+                    $this->get('bigbluebuttonbnid')
                 );
             }
             $this->metadatachanged = false;
@@ -435,7 +436,7 @@ class recording extends persistent {
     protected function before_delete() {
         $recordid = $this->get('recordingid');
         if ($recordid && !$this->get('imported')) {
-            recording_proxy::delete_recording($recordid);
+            recording_proxy::delete_recording($recordid, $this->get('bigbluebuttonbnid'));
             // Delete in cache if needed.
             $cachedrecordings = cache::make('mod_bigbluebuttonbn', 'recordings');
             $cachedrecordings->delete($recordid);
@@ -468,7 +469,7 @@ class recording extends persistent {
     protected function set_protected($value) {
         $realvalue = $value ? "true" : "false";
         $this->metadata_set('protected', $realvalue);
-        recording_proxy::protect_recording($this->get('recordingid'), $realvalue);
+        recording_proxy::protect_recording($this->get('recordingid'), $realvalue, $this->get('bigbluebuttonbnid'));
     }
 
     /**
@@ -498,7 +499,7 @@ class recording extends persistent {
         $realvalue = $value ? "true" : "false";
         $this->metadata_set('published', $realvalue);
         // Now set this flag onto the remote bbb server.
-        recording_proxy::publish_recording($this->get('recordingid'), $realvalue);
+        recording_proxy::publish_recording($this->get('recordingid'), $realvalue, $this->get('bigbluebuttonbnid'));
     }
 
     /**
@@ -707,17 +708,24 @@ class recording extends persistent {
             $recordingsort
         );
 
-        // Grab the recording IDs.
-        $recordingids = array_values(array_map(function ($recording) {
-            return $recording->recordingid;
-        }, $recordings));
+        // Fetch all metadata for these recordings, grouped by instance so subplugins can select the right BBB server.
+        $recordingidsbyinstance = [];
+        foreach ($recordings as $recording) {
+            $recordingidsbyinstance[$recording->bigbluebuttonbnid][] = $recording->recordingid;
+        }
 
-        // Fetch all metadata for these recordings.
-        $metadatas = recording_proxy::fetch_recordings($recordingids);
-        $failedids = recording_proxy::fetch_missing_recordings($recordingids);
+        $metadatasbyinstance = [];
+        $failedidsbyinstance = [];
+        foreach ($recordingidsbyinstance as $instanceid => $recordingids) {
+            $metadatasbyinstance[$instanceid] = recording_proxy::fetch_recordings($recordingids, (int) $instanceid);
+            $failedidsbyinstance[$instanceid] = recording_proxy::fetch_missing_recordings($recordingids, (int) $instanceid);
+        }
 
         // Return the instances.
-        return array_filter(array_map(function ($recording) use ($metadatas, $withindays, $failedids) {
+        return array_filter(array_map(function ($recording) use ($metadatasbyinstance, $withindays, $failedidsbyinstance) {
+            $instanceid = $recording->bigbluebuttonbnid;
+            $metadatas = $metadatasbyinstance[$instanceid] ?? [];
+            $failedids = $failedidsbyinstance[$instanceid] ?? [];
             // Filter out if no metadata was fetched.
             if (!array_key_exists($recording->recordingid, $metadatas)) {
                 // If the recording was successfully fetched, mark it as dismissed if it is older than 30 days.
@@ -756,7 +764,7 @@ class recording extends persistent {
         if ($this->get('imported')) {
             $this->metadata = json_decode($this->get('importeddata'), true);
         } else {
-            $this->metadata = recording_proxy::fetch_recording($this->get('recordingid'));
+            $this->metadata = recording_proxy::fetch_recording($this->get('recordingid'), $this->get('bigbluebuttonbnid'));
         }
 
         return $this->metadata;
@@ -769,7 +777,7 @@ class recording extends persistent {
      * be purged and refetched. This ensures that the url is safe for use with a protected recording.
      */
     protected function refresh_metadata_if_required() {
-        recording_proxy::purge_protected_recording($this->get('recordingid'));
+        recording_proxy::purge_protected_recording($this->get('recordingid'), $this->get('bigbluebuttonbnid'));
         $this->fetch_metadata(true);
     }
 
@@ -804,45 +812,47 @@ class recording extends persistent {
         $recordingcount = count($recordings);
         mtrace("=> Found {$recordingcount} recordings to query");
 
-        // Grab the recording IDs.
-        $recordingids = array_map(function($recording) {
-            return $recording->recordingid;
-        }, $recordings);
+        $recordingidsbyinstance = [];
+        foreach ($recordings as $id => $recording) {
+            $recordingidsbyinstance[$recording->bigbluebuttonbnid][$id] = $recording->recordingid;
+        }
 
         // Fetch all metadata for these recordings.
         mtrace("=> Fetching recording metadata from server");
-        $metadatas = recording_proxy::fetch_recordings($recordingids);
-
         $foundcount = 0;
-        foreach ($metadatas as $recordingid => $metadata) {
-            mtrace("==> Found metadata for {$recordingid}.");
-            $id = array_search($recordingid, $recordingids);
-            if (!$id) {
-                // Recording was not found, skip.
-                mtrace("===> Skip as fetched recording was not found.");
-                continue;
-            }
-            // Recording was found, update status.
-            mtrace("===> Update local cache as fetched recording was found.");
-            $recording = new self(0, $recordings[$id], $metadata);
-            $recording->set_status(self::RECORDING_STATUS_PROCESSED);
-            $foundcount++;
+        foreach ($recordingidsbyinstance as $instanceid => $recordingids) {
+            $metadatas = recording_proxy::fetch_recordings(array_values($recordingids), (int) $instanceid);
 
-            if (array_key_exists('breakouts', $metadata)) {
-                // Iterate breakout recordings (if any) and update status.
-                foreach ($metadata['breakouts'] as $breakoutrecordingid => $breakoutmetadata) {
-                    $breakoutrecording = self::get_record(['recordingid' => $breakoutrecordingid]);
-                    if (!$breakoutrecording) {
-                        $breakoutrecording = new recording(0, (object) [
-                            'courseid' => $recording->get('courseid'),
-                            'bigbluebuttonbnid' => $recording->get('bigbluebuttonbnid'),
-                            'groupid' => $recording->get('groupid'),
-                            'recordingid' => $breakoutrecordingid
-                        ], $breakoutmetadata);
-                        $breakoutrecording->create();
+            foreach ($metadatas as $recordingid => $metadata) {
+                mtrace("==> Found metadata for {$recordingid}.");
+                $id = array_search($recordingid, $recordingids, true);
+                if ($id === false) {
+                    // Recording was not found, skip.
+                    mtrace("===> Skip as fetched recording was not found.");
+                    continue;
+                }
+                // Recording was found, update status.
+                mtrace("===> Update local cache as fetched recording was found.");
+                $recording = new self(0, $recordings[$id], $metadata);
+                $recording->set_status(self::RECORDING_STATUS_PROCESSED);
+                $foundcount++;
+
+                if (array_key_exists('breakouts', $metadata)) {
+                    // Iterate breakout recordings (if any) and update status.
+                    foreach ($metadata['breakouts'] as $breakoutrecordingid => $breakoutmetadata) {
+                        $breakoutrecording = self::get_record(['recordingid' => $breakoutrecordingid]);
+                        if (!$breakoutrecording) {
+                            $breakoutrecording = new recording(0, (object) [
+                                'courseid' => $recording->get('courseid'),
+                                'bigbluebuttonbnid' => $recording->get('bigbluebuttonbnid'),
+                                'groupid' => $recording->get('groupid'),
+                                'recordingid' => $breakoutrecordingid
+                            ], $breakoutmetadata);
+                            $breakoutrecording->create();
+                        }
+                        $breakoutrecording->set_status(self::RECORDING_STATUS_PROCESSED);
+                        $foundcount++;
                     }
-                    $breakoutrecording->set_status(self::RECORDING_STATUS_PROCESSED);
-                    $foundcount++;
                 }
             }
         }

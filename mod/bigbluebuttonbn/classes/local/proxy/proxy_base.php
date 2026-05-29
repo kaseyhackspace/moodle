@@ -61,7 +61,7 @@ abstract class proxy_base {
         array $metadata = [],
         ?int $instanceid = null
     ): string {
-        $baseurl = self::sanitized_url() . $action . '?';
+        $baseurl = self::sanitized_url($instanceid) . $action . '?';
         ['data' => $additionaldata, 'metadata' => $additionalmetadata] =
             extension::action_url_addons($action, $data, $metadata, $instanceid);
         $data = array_merge($data, $additionaldata ?? []);
@@ -71,18 +71,43 @@ abstract class proxy_base {
             return 'meta_' . $k;
         }, array_keys($metadata)), $metadata);
         $params = http_build_query($data + $metadata, '', '&');
-        $checksum = self::get_checksum($action, $params);
+        $checksum = self::get_checksum($action, $params, $instanceid);
         return $baseurl . $params . '&checksum=' . $checksum;
+    }
+
+    /**
+     * Get the server configuration to use for the specified instance.
+     *
+     * @param int|null $instanceid BigBlueButtonBN instance id.
+     * @return array
+     */
+    protected static function server_config(?int $instanceid = null): array {
+        $serverconfig = [
+            'server_url' => config::get('server_url'),
+            'shared_secret' => config::get('shared_secret'),
+            'checksum_algorithm' => config::get('checksum_algorithm'),
+        ];
+        $addonconfig = extension::server_config_addons($instanceid);
+        foreach ($serverconfig as $key => $value) {
+            if (array_key_exists($key, $addonconfig)) {
+                if ($key === 'checksum_algorithm' && trim((string) $addonconfig[$key]) === '') {
+                    continue;
+                }
+                $serverconfig[$key] = $addonconfig[$key];
+            }
+        }
+        return $serverconfig;
     }
 
     /**
      * Makes sure the url used doesn't is in the format required.
      *
+     * @param int|null $instanceid BigBlueButtonBN instance id.
      * @return string
      */
-    protected static function sanitized_url(): string {
-        $serverurl = trim(config::get('server_url'));
-        if (PHPUNIT_TEST) {
+    protected static function sanitized_url(?int $instanceid = null): string {
+        $serverurl = trim(self::server_config($instanceid)['server_url']);
+        if (PHPUNIT_TEST && defined('TEST_MOD_BIGBLUEBUTTONBN_MOCK_SERVER')) {
             $serverurl = (new moodle_url(TEST_MOD_BIGBLUEBUTTONBN_MOCK_SERVER))->out(false);
         }
         if (substr($serverurl, -1) == '/') {
@@ -97,10 +122,11 @@ abstract class proxy_base {
     /**
      * Makes sure the shared_secret used doesn't have trailing white characters.
      *
+     * @param int|null $instanceid BigBlueButtonBN instance id.
      * @return string
      */
-    protected static function sanitized_secret(): string {
-        return trim(config::get('shared_secret'));
+    protected static function sanitized_secret(?int $instanceid = null): string {
+        return trim(self::server_config($instanceid)['shared_secret']);
     }
 
     /**
@@ -198,9 +224,11 @@ abstract class proxy_base {
      *
      * @param string $action
      * @param string $params
+     * @param int|null $instanceid BigBlueButtonBN instance id.
      * @return string
      */
-    public static function get_checksum(string $action, string $params): string {
-        return hash(config::get('checksum_algorithm'), $action . $params . self::sanitized_secret());
+    public static function get_checksum(string $action, string $params, ?int $instanceid = null): string {
+        $serverconfig = self::server_config($instanceid);
+        return hash($serverconfig['checksum_algorithm'], $action . $params . self::sanitized_secret($instanceid));
     }
 }

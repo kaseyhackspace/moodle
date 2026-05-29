@@ -100,7 +100,7 @@ class mobile {
         }
 
         // Check if the BBB server is working.
-        $serverversion = bigbluebutton_proxy::get_server_version();
+        $serverversion = bigbluebutton_proxy::get_server_version($instance->get_instance_id());
         if ($serverversion === null) {
             return self::mobile_print_error(bigbluebutton_proxy::get_server_not_available_message($instance));
         }

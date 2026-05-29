@@ -500,7 +500,7 @@ function mod_bigbluebuttonbn_core_calendar_provide_event_action(
     $meetinginfo = null;
     // Check first if the server can be contacted.
     try {
-        if (empty(bigbluebutton_proxy::get_server_version())) {
+        if (empty(bigbluebutton_proxy::get_server_version($instance->get_instance_id()))) {
             // In this case we should already have debugging message printed.
             return null;
         }

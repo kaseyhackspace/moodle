@@ -87,7 +87,7 @@ class meeting_info extends external_api {
         self::validate_context($context);
 
         // Check if the BBB server is working.
-        $serverversion = bigbluebutton_proxy::get_server_version();
+        $serverversion = bigbluebutton_proxy::get_server_version($instance->get_instance_id());
         if ($serverversion === null) {
             throw new \moodle_exception('general_error_no_answer', 'mod_bigbluebuttonbn',
                 bigbluebutton_proxy::get_server_not_available_url($instance),

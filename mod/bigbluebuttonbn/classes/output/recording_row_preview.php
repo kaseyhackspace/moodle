@@ -70,7 +70,10 @@ class recording_row_preview implements renderable, templatable {
             if (isset($playback['preview'])) {
                 foreach ($playback['preview'] as $image) {
                     $url = trim($image['url']);
-                    $validated = bigbluebutton_proxy::is_remote_resource_valid($url);
+                    $validated = bigbluebutton_proxy::is_remote_resource_valid(
+                        $url,
+                        $this->recording->get_instance()->get_instance_id()
+                    );
                     if ($validated) {
                         $thumbnails[] = $url . '?' . time();
                     }

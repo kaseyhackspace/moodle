@@ -54,14 +54,16 @@ class mod_bigbluebuttonbn_mod_form extends moodleform_mod {
     public function definition(): void {
         global $CFG, $DB, $PAGE;
         $mform = &$this->_form;
+        $bigbluebuttonbn = empty($this->get_current()->id) ? null : $this->get_current();
+        $instanceid = $bigbluebuttonbn ? (int) $bigbluebuttonbn->id : null;
 
         // Validates if the BigBlueButton server is running.
-        $serverversion = bigbluebutton_proxy::get_server_version();
+        $serverversion = bigbluebutton_proxy::get_server_version($instanceid);
         if (is_null($serverversion)) {
             throw new moodle_exception('general_error_unable_connect',
                 'bigbluebuttonbn',
                 $CFG->wwwroot . '/admin/settings.php?section=modsettingbigbluebuttonbn',
-                \mod_bigbluebuttonbn\local\config::get('server_url')
+                bigbluebutton_proxy::get_server_url($instanceid)
             );
         }
         // UI configuration options.
@@ -70,7 +72,6 @@ class mod_bigbluebuttonbn_mod_form extends moodleform_mod {
         // Get only those that are allowed.
         $course = $this->_course;
         $context = context_course::instance($course->id);
-        $bigbluebuttonbn = empty($this->get_current()->id) ? null : $this->get_current();
 
         $this->formextensions = extension::mod_form_addons_instances($mform, $bigbluebuttonbn, $this->get_suffix());
 
